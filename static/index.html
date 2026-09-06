@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HEAL | Heat Exposure & Alerting Layer</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* Fixed Map Viewport Sizing */
+    #gisMap {
+      min-height: 440px;
+      height: 100%;
+      width: 100%;
+      background-color: #020617;
+    }
+    .leaflet-popup-content-wrapper {
+      background: #0f172a !important;
+      color: #f8fafc !important;
+      border: 1px solid #334155;
+      border-radius: 0.75rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+    }
+    .leaflet-popup-tip {
+      background: #0f172a !important;
+    }
+    .custom-pulse-marker {
+      background: rgba(249, 115, 22, 0.95);
+      border: 2px solid white;
+      border-radius: 50%;
+      box-shadow: 0 0 15px rgba(249, 115, 22, 1);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7); }
+      70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(249, 115, 22, 0); }
+      100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col selection:bg-orange-500 selection:text-white">
+
+  <!-- Header -->
+  <header class="bg-slate-900 border-b border-slate-800 flex-shrink-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-orange-600 flex items-center justify-center shadow-lg shadow-orange-600/30">
+          <i data-lucide="flame" class="w-5 h-5 text-white"></i>
+        </div>
+        <div>
+          <span class="text-lg font-black text-white tracking-tight leading-tight">HEAL</span>
+          <p class="text-[10px] text-slate-400 font-medium">Heat Exposure and Alerting Layer |</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-3">
+        <span id="backendStatus" class="text-xs px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-400 flex items-center gap-1.5 transition-colors">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Connected
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-3 flex flex-col space-y-3">
+
+    <!-- KPI Summary Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 flex-shrink-0">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm flex flex-col justify-between">
+        <div class="flex justify-between items-start">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Peak Regional WBGT</p>
+          <i data-lucide="thermometer" class="w-4 h-4 text-red-400"></i>
+        </div>
+        <div>
+          <h3 id="kpiWbgt" class="text-2xl font-extrabold text-red-500 mt-0.5">38.4 °C</h3>
+          <p id="kpiWbgtLoc" class="text-[10px] text-red-400 font-medium mt-0.5 truncate">Peak in Nagpur (Sensors)</p>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm flex flex-col justify-between">
+        <div class="flex justify-between items-start">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Active Point HTSI Index</p>
+          <i data-lucide="activity" class="w-4 h-4 text-orange-400"></i>
+        </div>
+        <div>
+          <h3 id="kpiSurge" class="text-2xl font-extrabold text-orange-400 mt-0.5">88.5</h3>
+          <p id="kpiSurgeLoc" class="text-[10px] text-orange-300 font-medium mt-0.5 truncate">HTSI Score @ Delhi NCR</p>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-sm flex flex-col justify-between">
+        <div class="flex justify-between items-start">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Target Selected</p>
+          <i data-lucide="map-pin" class="w-4 h-4 text-sky-400"></i>
+        </div>
+        <div>
+          <h3 id="kpiLocationName" class="text-lg font-bold text-sky-400 mt-0.5 truncate">Delhi NCR</h3>
+          <p id="kpiSyncTime" class="text-[10px] text-sky-300 font-medium mt-0.5 truncate">Live Sensor Telemetry Synchronized</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Map & Simulator Area -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 flex-1">
+      
+      <!-- Leaflet GIS Map -->
+      <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl flex flex-col min-h-[460px] relative">
+        <div class="p-2 border-b border-slate-800 flex justify-between items-center bg-slate-900/80 flex-shrink-0">
+          <h2 class="text-xs font-bold flex items-center gap-1.5 text-slate-200">
+            <i data-lucide="crosshair" class="w-3.5 h-3.5 text-orange-400"></i> Click Any Location on the Map for Point Inference
+          </h2>
+          <button onclick="loadDefaultZones()" class="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700 transition flex items-center gap-1">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Sync Hubs
+          </button>
+        </div>
+        <div id="gisMap"></div>
+      </div>
+
+      <!-- Live Simulator with Extra Large Biophysical Output Cards -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow-xl min-h-[460px]">
+        
+        <!-- Controls Top -->
+        <div class="flex-shrink-0">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-bold flex items-center gap-1.5 text-orange-400">
+              <i data-lucide="sliders" class="w-4 h-4"></i> Point Stress Simulator
+            </h3>
+            <span id="simLocationBadge" class="text-xs bg-slate-800 px-2.5 py-1 rounded-md text-slate-200 border border-slate-700 font-semibold truncate max-w-[140px]">Delhi NCR</span>
+          </div>
+          
+          <!-- Slider Controls -->
+          <div class="space-y-2 text-xs">
+            <div>
+              <div class="flex justify-between mb-0.5">
+                <span class="text-slate-400 font-medium">Ambient Temperature</span>
+                <span id="tempVal" class="text-orange-400 font-bold text-sm">42.0°C</span>
+              </div>
+              <input type="range" id="tempInput" min="20" max="52" value="42" step="0.5" class="w-full accent-orange-500 cursor-pointer h-1.5" oninput="runLiveSim()">
+            </div>
+
+            <div>
+              <div class="flex justify-between mb-0.5">
+                <span class="text-slate-400 font-medium">Relative Humidity</span>
+                <span id="humVal" class="text-sky-400 font-bold text-sm">60%</span>
+              </div>
+              <input type="range" id="humInput" min="10" max="98" value="60" class="w-full accent-sky-500 cursor-pointer h-1.5" oninput="runLiveSim()">
+            </div>
+
+            <div>
+              <div class="flex justify-between mb-0.5">
+                <span class="text-slate-400 font-medium">Wind Speed</span>
+                <span id="windVal" class="text-emerald-400 font-bold text-sm">1.0 m/s</span>
+              </div>
+              <input type="range" id="windInput" min="0.1" max="15" value="1.0" step="0.1" class="w-full accent-emerald-500 cursor-pointer h-1.5" oninput="runLiveSim()">
+            </div>
+          </div>
+        </div>
+
+        <!-- Extra Large High-Impact Output Dashboard -->
+        <div class="flex-1 flex flex-col justify-end space-y-3 mt-3 pt-2.5 border-t border-slate-800/80">
+          
+          <!-- WBGT Metric Card -->
+          <div class="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between shadow-inner">
+            <div class="pr-3 flex-1">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-xs font-black tracking-wider text-slate-100">CALCULATED WBGT</span>
+                <span id="wbgtBadge" class="text-[10px] font-black px-2.5 py-0.5 rounded border bg-red-500/20 text-red-400 border-red-500/30 uppercase">CRITICAL</span>
+              </div>
+              <p class="text-xs text-slate-400 leading-relaxed font-normal">
+                <strong class="text-slate-200 font-semibold">Wet-Bulb Globe Temp:</strong> Evaluates human evaporative cooling limits factoring humidity, wind, and solar load.
+              </p>
+            </div>
+            <div class="text-right flex-shrink-0 pl-2">
+              <span id="simWbgt" class="text-4xl font-black text-red-500 tracking-tight leading-none">37.6 °C</span>
+            </div>
+          </div>
+
+          <!-- HTSI Metric Card -->
+          <div class="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between shadow-inner">
+            <div class="pr-3 flex-1">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-xs font-black tracking-wider text-slate-100">HTSI STRESS INDEX</span>
+                <span id="htsiBadge" class="text-[10px] font-black px-2.5 py-0.5 rounded border bg-orange-500/20 text-orange-400 border-orange-500/30 uppercase">SCORE / 100</span>
+              </div>
+              <p class="text-xs text-slate-400 leading-relaxed font-normal">
+                <strong class="text-slate-200 font-semibold">Human Thermal Stress Index:</strong> Integrated biophysical model weighting Heat Index, WBGT, and UTCI strain.
+              </p>
+            </div>
+            <div class="text-right flex-shrink-0 pl-2">
+              <span id="simHtsi" class="text-4xl font-black text-orange-400 tracking-tight leading-none">100.0</span>
+            </div>
+          </div>
+
+          <!-- 6-Hour Risk & Action Directive Card -->
+          <div class="p-3.5 bg-slate-950 rounded-xl border border-slate-800 shadow-inner">
+            <div class="flex justify-between items-center mb-1.5">
+              <span class="text-slate-400 text-xs font-bold uppercase tracking-wider">6-Hour Risk Tier</span>
+              <span id="simCategoryBadge" class="font-black text-base tracking-wide text-red-500">Very High</span>
+            </div>
+            <p id="simActionDirective" class="text-xs text-slate-300 font-medium leading-relaxed">
+              Activate Heat Action Plan (HAP), emergency cooling centers, and hospital surge triage.
+            </p>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    lucide.createIcons();
+    const API_BASE = "http://127.0.0.1:8000";
+
+    // 1. Initialize Leaflet Map
+    const map = L.map('gisMap', { zoomSnap: 0.25 }).setView([21.5, 80.0], 4.75);
+    
+    // CartoDB Dark Matter tile layer
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+        maxZoom: 16
+    }).addTo(map);
+
+    let presetLayers = [];
+    let customClickMarker = null;
+
+    const PRESET_LOCATIONS = [
+      { id: "DEL_01", city: "Delhi", name: "Central Urban Core", lat: 28.6139, lng: 77.2090, defTemp: 42.0, defRh: 45.0, defWind: 2.0, defRad: 800.0 },
+      { id: "AHM_01", city: "Ahmedabad", name: "Industrial Mill Belt", lat: 23.0225, lng: 72.5714, defTemp: 43.5, defRh: 38.0, defWind: 2.5, defRad: 850.0 },
+      { id: "JAI_01", city: "Jaipur", name: "Walled City Core", lat: 26.9124, lng: 75.7873, defTemp: 41.5, defRh: 30.0, defWind: 2.2, defRad: 880.0 },
+      { id: "NAG_01", city: "Nagpur", name: "Vidarbha Hub", lat: 21.1458, lng: 79.0882, defTemp: 44.0, defRh: 35.0, defWind: 1.8, defRad: 820.0 },
+      { id: "LKO_01", city: "Lucknow", name: "Trans-Gomti Sector", lat: 26.8467, lng: 80.9462, defTemp: 42.5, defRh: 42.0, defWind: 2.1, defRad: 830.0 },
+      { id: "BBU_01", city: "Bhubaneswar", name: "Delta Coastal Sector", lat: 20.2961, lng: 85.8245, defTemp: 39.0, defRh: 68.0, defWind: 2.8, defRad: 790.0 },
+      { id: "HYD_01", city: "Hyderabad", name: "Old City Sector", lat: 17.3850, lng: 78.4867, defTemp: 39.5, defRh: 55.0, defWind: 3.0, defRad: 780.0 },
+      { id: "KOL_01", city: "Kolkata", name: "Delta Metro Zone", lat: 22.5726, lng: 88.3639, defTemp: 37.0, defRh: 72.0, defWind: 1.5, defRad: 750.0 },
+      { id: "MUM_01", city: "Mumbai", name: "Coastal Metropole", lat: 19.0760, lng: 72.8777, defTemp: 35.0, defRh: 78.0, defWind: 3.5, defRad: 700.0 },
+      { id: "MAA_01", city: "Chennai", name: "Coromandel Coast", lat: 13.0827, lng: 80.2707, defTemp: 38.5, defRh: 70.0, defWind: 3.2, defRad: 760.0 }
+    ];
+
+    // 2. Fetch live data for arbitrary clicked point
+    async function evaluatePointOnMap(lat, lng, label = "") {
+      let temp = parseFloat(document.getElementById('tempInput').value) || 38.0;
+      let rh = parseFloat(document.getElementById('humInput').value) || 45.0;
+      let wind = parseFloat(document.getElementById('windInput').value) || 2.0;
+      let rad = 750.0;
+      let placeName = label || `${lat.toFixed(2)}°N, ${lng.toFixed(2)}°E`;
+
+      try {
+        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,shortwave_radiation`;
+        const weatherRes = await fetch(weatherUrl);
+        if (weatherRes.ok) {
+          const weatherData = await weatherRes.json();
+          const cur = weatherData.current || {};
+          temp = parseFloat(cur.temperature_2m ?? temp);
+          rh = parseFloat(cur.relative_humidity_2m ?? rh);
+          wind = parseFloat(cur.wind_speed_10m ?? wind);
+          rad = parseFloat(cur.shortwave_radiation ?? rad);
+        }
+      } catch (e) {
+        console.warn("Telemetry fallback used:", e);
+      }
+
+      document.getElementById('kpiLocationName').innerText = placeName;
+      document.getElementById('simLocationBadge').innerText = placeName;
+      document.getElementById('tempInput').value = temp;
+      document.getElementById('humInput').value = rh;
+      document.getElementById('windInput').value = wind;
+
+      // Update simulator
+      runLiveSim();
+
+      // Add/Update Pulse Marker
+      if (customClickMarker) map.removeLayer(customClickMarker);
+      const customIcon = L.divIcon({ className: 'custom-pulse-marker', iconSize: [18, 18], iconAnchor: [9, 9] });
+      customClickMarker = L.marker([lat, lng], { icon: customIcon }).addTo(map);
+
+      try {
+        const modelRes = await fetch(`${API_BASE}/predict`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            records: [{
+              location_id: "point_probe",
+              datetime: new Date().toISOString(),
+              temperature_2m: temp,
+              relative_humidity_2m: rh,
+              wind_speed_10m: wind,
+              shortwave_radiation: rad
+            }]
+          })
+        });
+
+        if (modelRes.ok) {
+          const modelData = await modelRes.json();
+          const p = modelData.predictions[0];
+          document.getElementById('kpiSurge').innerText = p.htsi.toFixed(1);
+          document.getElementById('kpiSurgeLoc').innerText = `HTSI Score @ ${placeName}`;
+
+          const popupContent = `
+            <div class="text-slate-100 font-sans p-1">
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-600 text-white">POINTED TARGET</span>
+              <h4 class="font-bold text-sm text-white mt-1.5 mb-1">${placeName}</h4>
+              <hr class="my-1 border-slate-700"/>
+              <div class="space-y-0.5 text-xs text-slate-300">
+                <p><strong class="text-slate-400">Live Weather:</strong> ${temp.toFixed(1)}°C | RH: ${rh}% | Wind: ${wind.toFixed(1)} m/s</p>
+                <p><strong class="text-slate-400">Computed WBGT:</strong> <span class="text-red-400 font-bold">${p.wbgt.toFixed(1)}°C</span></p>
+                <p><strong class="text-slate-400">HTSI Index:</strong> <span class="text-orange-400 font-bold">${p.htsi.toFixed(1)}</span></p>
+                <p><strong class="text-slate-400">6-Hr Risk Tier:</strong> <span class="text-amber-400 font-bold">${p.risk_category}</span></p>
+                <p><strong class="text-slate-400">Action:</strong> ${p.recommended_action}</p>
+              </div>
+            </div>
+          `;
+          customClickMarker.bindPopup(popupContent).openPopup();
+        }
+      } catch (err) {
+        console.warn("Backend prediction call error:", err);
+      }
+    }
+
+    // 3. Map Click Event
+    map.on('click', (e) => {
+      evaluatePointOnMap(e.latlng.lat, e.latlng.lng);
+    });
+
+    // 4. Load Preset City Grid
+    async function loadDefaultZones() {
+      const nowIso = new Date().toISOString();
+      const records = PRESET_LOCATIONS.map(loc => ({
+        location_id: loc.id,
+        datetime: nowIso,
+        temperature_2m: loc.defTemp,
+        relative_humidity_2m: loc.defRh,
+        wind_speed_10m: loc.defWind,
+        shortwave_radiation: loc.defRad
+      }));
+
+      // Render default circles immediately
+      presetLayers.forEach(l => map.removeLayer(l));
+      presetLayers = [];
+
+      PRESET_LOCATIONS.forEach((loc) => {
+        const circle = L.circle([loc.lat, loc.lng], {
+          color: "#f97316",
+          fillColor: "#f97316",
+          fillOpacity: 0.45,
+          weight: 2,
+          radius: 28000
+        }).addTo(map);
+
+        circle.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          evaluatePointOnMap(loc.lat, loc.lng, `${loc.city} - ${loc.name}`);
+        });
+
+        presetLayers.push(circle);
+      });
+
+      // Fetch Model Predictions for all presets
+      try {
+        const modelRes = await fetch(`${API_BASE}/predict`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ records })
+        });
+
+        if (modelRes.ok) {
+          const modelData = await modelRes.json();
+          let maxWbgt = 0;
+          let maxWbgtCity = "";
+
+          modelData.predictions.forEach((p, idx) => {
+            const loc = PRESET_LOCATIONS[idx];
+            if (p.wbgt > maxWbgt) { maxWbgt = p.wbgt; maxWbgtCity = loc.city; }
+            const color = p.risk_category === "Very High" ? "#ef4444" : (p.risk_category === "High" ? "#f97316" : (p.risk_category === "Moderate" ? "#f59e0b" : "#10b981"));
+            if (presetLayers[idx]) {
+              presetLayers[idx].setStyle({ color: color, fillColor: color });
+            }
+          });
+
+          document.getElementById('kpiWbgt').innerText = `${maxWbgt.toFixed(1)} °C`;
+          document.getElementById('kpiWbgtLoc').innerText = `Peak in ${maxWbgtCity} (Sensors)`;
+        }
+      } catch (e) {
+        console.warn("Preset scoring fallback used:", e);
+      }
+    }
+
+    // 5. Realistic Simulator Engine
+    async function runLiveSim() {
+      const temp = parseFloat(document.getElementById('tempInput').value);
+      const hum = parseFloat(document.getElementById('humInput').value);
+      const wind = parseFloat(document.getElementById('windInput').value);
+
+      document.getElementById('tempVal').innerText = `${temp.toFixed(1)}°C`;
+      document.getElementById('humVal').innerText = `${hum}%`;
+      document.getElementById('windVal').innerText = `${wind.toFixed(1)} m/s`;
+
+      const simSolarRad = Math.min(1050, Math.max(300, (temp - 25) * 45));
+      const baseDate = new Date();
+      baseDate.setUTCHours(8, 0, 0, 0);
+
+      const historyRecords = [];
+      for (let i = 5; i >= 0; i--) {
+        const stepTime = new Date(baseDate.getTime() - i * 3600 * 1000);
+        const ramp = 1.0 - (i * 0.02);
+        historyRecords.push({
+          location_id: "sim_node",
+          datetime: stepTime.toISOString(),
+          temperature_2m: parseFloat((temp * ramp).toFixed(1)),
+          relative_humidity_2m: parseFloat(hum.toFixed(1)),
+          wind_speed_10m: parseFloat(wind.toFixed(1)),
+          shortwave_radiation: parseFloat((simSolarRad * ramp).toFixed(1))
+        });
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/predict`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ records: historyRecords })
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          if (data.predictions && data.predictions.length > 0) {
+            const p = data.predictions[data.predictions.length - 1];
+            document.getElementById('simWbgt').innerText = `${p.wbgt.toFixed(1)} °C`;
+            document.getElementById('simHtsi').innerText = `${p.htsi.toFixed(1)}`;
+
+            let category = p.risk_category;
+            let action = p.recommended_action;
+
+            let wbgtStatus = "NORMAL";
+            let wbgtBadgeClass = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+
+            if (p.wbgt >= 32.0) {
+              wbgtStatus = "CRITICAL";
+              wbgtBadgeClass = "bg-red-500/20 text-red-400 border-red-500/30";
+            } else if (p.wbgt >= 29.5) {
+              wbgtStatus = "HIGH DANGER";
+              wbgtBadgeClass = "bg-orange-500/20 text-orange-400 border-orange-500/30";
+            } else if (p.wbgt >= 27.0) {
+              wbgtStatus = "CAUTION";
+              wbgtBadgeClass = "bg-amber-500/20 text-amber-400 border-amber-500/30";
+            }
+
+            const wbgtBadge = document.getElementById('wbgtBadge');
+            wbgtBadge.className = `text-[10px] font-black px-2.5 py-0.5 rounded border ${wbgtBadgeClass} uppercase`;
+            wbgtBadge.innerText = wbgtStatus;
+
+            let htsiStatus = "LOW STRAIN";
+            let htsiBadgeClass = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+
+            if (p.htsi >= 85) {
+              category = "Very High";
+              action = "Activate Heat Action Plan (HAP), emergency cooling centers, and hospital surge triage.";
+              htsiStatus = "SEVERE STRESS";
+              htsiBadgeClass = "bg-red-500/20 text-red-400 border-red-500/30";
+            } else if (p.htsi >= 70) {
+              category = "High";
+              action = "Mandatory outdoor labor rest intervals, water distribution, and vulnerable person alerts.";
+              htsiStatus = "HIGH STRAIN";
+              htsiBadgeClass = "bg-orange-500/20 text-orange-400 border-orange-500/30";
+            } else if (p.htsi >= 50) {
+              category = "Moderate";
+              action = "Hydration centers, shade deployment, and general public advisory.";
+              htsiStatus = "MODERATE STRAIN";
+              htsiBadgeClass = "bg-amber-500/20 text-amber-400 border-amber-500/30";
+            }
+
+            const htsiBadge = document.getElementById('htsiBadge');
+            htsiBadge.className = `text-[10px] font-black px-2.5 py-0.5 rounded border ${htsiBadgeClass} uppercase`;
+            htsiBadge.innerText = htsiStatus;
+
+            const tierColor = category === "Very High" ? "text-red-500" 
+                            : category === "High" ? "text-orange-400" 
+                            : category === "Moderate" ? "text-amber-400" 
+                            : "text-emerald-400";
+
+            const categoryElem = document.getElementById('simCategoryBadge');
+            categoryElem.className = `font-black text-base ${tierColor}`;
+            categoryElem.innerText = category;
+            document.getElementById('simActionDirective').innerText = action;
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Local predict offline:", e);
+      }
+
+      // Mathematical Fallback if backend is restarting
+      const wbgtEst = (0.7 * (temp * (hum / 100)) + 0.2 * temp + 14.0 - (wind * 0.45)).toFixed(1);
+      const htsiEst = Math.min(100, Math.max(0, ((temp - 24) * 2.8 + (hum - 35) * 0.7 - wind * 1.5))).toFixed(1);
+      document.getElementById('simWbgt').innerText = `${wbgtEst} °C`;
+      document.getElementById('simHtsi').innerText = `${htsiEst}`;
+    }
+
+    // Window resize handler
+    window.addEventListener('resize', () => { map.invalidateSize(); });
+
+    // Initial load sequence
+    setTimeout(() => {
+      map.invalidateSize();
+      loadDefaultZones();
+      runLiveSim();
+    }, 100);
+  </script>
+</body>
+</html>
